@@ -24,6 +24,7 @@ jobs:
       QUOTE0_DEVICE_ID: ${{ secrets.QUOTE0_DEVICE_ID }}
       GLM_API_KEY: ${{ secrets.GLM_API_KEY }}
       GLM_PLAN: cn
+      QUOTE0_IMAGE_TASK_KEY: ${{ secrets.QUOTE0_IMAGE_TASK_KEY }}   # 多卡时绑定本仪表盘的卡
       DISPLAY_TZ: 'Asia/Shanghai'   # 时间戳显示时区（运行器默认 UTC）
       QUOTE0_REFRESH_NOW: 'true'
       QUOTE0_SWITCH_NEXT: 'true'
