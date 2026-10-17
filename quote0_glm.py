@@ -98,22 +98,56 @@ def _auth_headers() -> dict:
     return {"Authorization": f"Bearer {QUOTE0_API_KEY}"}
 
 
+def _resolve_image_task() -> tuple[str | None, str | None]:
+    """探测设备上 Image API 卡片在哪个列表：返回 (taskType, taskKey)。
+
+    优先 loop（refreshNow 立即刷新 + /next 切换都只对 loop 有效），
+    其次 fixed。都找不到返回 (None, None)——卡片在 App 里被挪动或删除后
+    推送仍能自动找到正确槽位，不再依赖手动配置 taskKey。"""
+    for tt in ("loop", "fixed"):
+        try:
+            r = requests.get(
+                f"{API_BASE}/api/authV2/open/device/{QUOTE0_DEVICE_ID}/{tt}/list",
+                headers=_auth_headers(), timeout=10)
+            if not r.ok:
+                continue
+            data = r.json()
+            if isinstance(data, list):
+                for task in data:
+                    if isinstance(task, dict) and task.get("type") == "IMAGE_API":
+                        return tt, task.get("key")
+        except (requests.RequestException, ValueError):
+            continue
+    return None, None
+
+
 def push_image(png_bytes: bytes) -> dict:
     url = f"{API_BASE}/api/authV2/open/device/{QUOTE0_DEVICE_ID}/image"
+
+    task_type, task_key = _resolve_image_task()
+    if task_type is None:
+        # 探测失败（网络问题或卡片真没了）：按 loop 默认推，
+        # 让服务端返回带指引的 404 而不是静默错投
+        task_type = "loop"
+        task_key = QUOTE0_IMAGE_TASK_KEY or None
+
     payload = {
-        "refreshNow": QUOTE0_REFRESH_NOW,
+        "taskType": task_type,
+        # 官方文档：refreshNow 只对 loop 生效，fixed 卡片按自身节奏刷新
+        "refreshNow": QUOTE0_REFRESH_NOW and task_type == "loop",
         "image": base64.b64encode(png_bytes).decode(),
         "ditherType": "NONE",   # 纯黑白文字图，关抖动防噪点（官方文档建议）
         "border": 0,
     }
-    if QUOTE0_IMAGE_TASK_KEY:
-        payload["taskKey"] = QUOTE0_IMAGE_TASK_KEY
+    if task_key:
+        payload["taskKey"] = task_key
     r = requests.post(url, json=payload, headers=_auth_headers(), timeout=20)
     try:
         body = r.json()
     except ValueError:
         body = {"_raw": r.text}
-    return {"ok": r.ok, "status": r.status_code, "body": body}
+    return {"ok": r.ok, "status": r.status_code, "body": body,
+            "task_type": task_type, "task_key": task_key}
 
 
 def push_text(message: str) -> dict:
@@ -167,8 +201,17 @@ def run(preview: bool = False, text_mode: bool = False) -> bool:
     if text_mode:
         result = push_text(glm.format_text(sn))
     else:
-        result = push_image(render_image(snap))
-        if result.get("ok") and QUOTE0_SWITCH_NEXT:
+        png = render_image(snap)
+        # 推送模式也留一份预览（GitHub Actions 产物/本地排障都能看）
+        try:
+            Path(QUOTE0_PREVIEW_PATH).parent.mkdir(parents=True, exist_ok=True)
+            Path(QUOTE0_PREVIEW_PATH).write_bytes(png)
+        except OSError:
+            pass
+        result = push_image(png)
+        print(f"image task: {result.get('task_type')}/{result.get('task_key')}")
+        # /next 切换显示只对 loop 卡片有意义；fixed 卡片按设备自身节奏刷新
+        if result.get("ok") and QUOTE0_SWITCH_NEXT and result.get("task_type") == "loop":
             nxt = switch_next()
             if not nxt.get("ok"):
                 print(f"warning: /next switch failed (HTTP {nxt.get('status')})", file=sys.stderr)
