@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import base64
 import json
+import os
 import sys
 import time
 from datetime import datetime
@@ -35,8 +36,20 @@ SNAPSHOT_CACHE_PATH = _HERE / "tmp" / "last_snapshot.json"
 
 
 def _env(key: str, default: str = "") -> str:
-    import os
     return os.environ.get(key, default)
+
+
+def _now() -> datetime:
+    """渲染时间戳用的当前时间：优先 DISPLAY_TZ 指定时区（如 Asia/Shanghai），
+    否则用系统本地时间。GitHub Actions 运行器是 UTC，云端跑必须显式设置。"""
+    tz_name = os.environ.get("DISPLAY_TZ", "").strip()
+    if tz_name:
+        try:
+            from zoneinfo import ZoneInfo
+            return datetime.now(ZoneInfo(tz_name))
+        except Exception:
+            pass
+    return datetime.now()
 
 
 QUOTE0_API_KEY      = _env("QUOTE0_API_KEY")
@@ -56,7 +69,7 @@ def build_snapshot() -> dict:
     sn = glm.build_snapshot(raw)
     snap = {
         "glm": sn,
-        "updated_at": datetime.now().strftime("%H:%M"),
+        "updated_at": _now().strftime("%H:%M"),
         "_cached": False,
     }
 
@@ -108,7 +121,7 @@ def push_text(message: str) -> dict:
     payload = {
         "refreshNow": QUOTE0_REFRESH_NOW,
         "message": message,
-        "signature": datetime.now().strftime("%H:%M"),
+        "signature": _now().strftime("%H:%M"),
     }
     if QUOTE0_TEXT_TASK_KEY:
         payload["taskKey"] = QUOTE0_TEXT_TASK_KEY
