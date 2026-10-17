@@ -101,9 +101,12 @@ def _auth_headers() -> dict:
 def _resolve_image_task() -> tuple[str | None, str | None]:
     """探测设备上 Image API 卡片在哪个列表：返回 (taskType, taskKey)。
 
+    设了 QUOTE0_IMAGE_TASK_KEY 时只认那张卡（设备上有多张 Image API 卡时
+    必须用它绑定，否则永远命中 loop 里的第一张）；未设则取找到的第一张，
     优先 loop（refreshNow 立即刷新 + /next 切换都只对 loop 有效），
-    其次 fixed。都找不到返回 (None, None)——卡片在 App 里被挪动或删除后
-    推送仍能自动找到正确槽位，不再依赖手动配置 taskKey。"""
+    其次 fixed。都找不到返回 (None, None)。"""
+    pinned = QUOTE0_IMAGE_TASK_KEY
+    fallback = (None, None)
     for tt in ("loop", "fixed"):
         try:
             r = requests.get(
@@ -115,10 +118,13 @@ def _resolve_image_task() -> tuple[str | None, str | None]:
             if isinstance(data, list):
                 for task in data:
                     if isinstance(task, dict) and task.get("type") == "IMAGE_API":
-                        return tt, task.get("key")
+                        if task.get("key") == pinned:
+                            return tt, task.get("key")
+                        if fallback == (None, None):
+                            fallback = (tt, task.get("key"))
         except (requests.RequestException, ValueError):
             continue
-    return None, None
+    return fallback
 
 
 def push_image(png_bytes: bytes) -> dict:
