@@ -1,0 +1,8 @@
+# 密钥与本地状态，绝不入库
+.env
+tmp/
+__pycache__/
+*.pyc
+
+# 本地预览产物
+preview*.png

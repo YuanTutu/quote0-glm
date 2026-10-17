@@ -1,0 +1,44 @@
+name: refresh
+
+on:
+  schedule:
+    # 每小时第 7 分钟（UTC，错开整点高峰）。
+    # 想改成每 30 分钟：改为 '7,37 * * * *'（注意私有仓库免费额度 2000 分钟/月）
+    - cron: '7 * * * *'
+  workflow_dispatch: {}   # 允许 Actions 页面手动触发
+
+permissions:
+  contents: read
+
+concurrency:
+  group: refresh
+  cancel-in-progress: false
+
+jobs:
+  push:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      QUOTE0_API_KEY: ${{ secrets.QUOTE0_API_KEY }}
+      QUOTE0_DEVICE_ID: ${{ secrets.QUOTE0_DEVICE_ID }}
+      GLM_API_KEY: ${{ secrets.GLM_API_KEY }}
+      GLM_PLAN: cn
+      QUOTE0_REFRESH_NOW: 'true'
+      QUOTE0_SWITCH_NEXT: 'true'
+      QUOTE0_PREVIEW_PATH: tmp/preview.png
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies (pinned)
+        run: python -m pip install --no-cache-dir -r requirements.txt
+      - name: Fetch GLM usage and push to Quote/0
+        run: python quote0_glm.py
+      - name: Upload preview
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: preview
+          path: tmp/preview.png
+          retention-days: 3
